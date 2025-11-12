@@ -1,0 +1,701 @@
+-- =============================================================================
+-- 1. Таблица пользователей
+-- =============================================================================
+CREATE TABLE users (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор пользователя
+    username TEXT NOT NULL UNIQUE,                                 -- Уникальное имя пользователя для входа
+    email TEXT NOT NULL UNIQUE,                                    -- Уникальный email для регистрации и уведомлений
+    password_hash TEXT NOT NULL,                                   -- Хеш пароля для аутентификации
+    
+    -- Роли с чёткими правами:
+    -- основатель: ВСЁ (создание, модерация, администрирование)
+    -- админ: ТОЛЬКО просмотр логов и мониторинг сервера
+    -- проверяющий: ТОЛЬКО модерация контента и загрузка видео за пользователей  
+    -- пользователь: ТОЛЬКО создание контента (после проверки) и заполнение профиля
+    role TEXT NOT NULL CHECK (role IN ('основатель', 'админ', 'проверяющий', 'пользователь')) DEFAULT 'пользователь',
+    
+    avatar_path TEXT,                                              -- Путь к аватарке пользователя
+    cover_path TEXT,                                               -- Путь к обложке профиля пользователя
+    profile_is_public BOOLEAN DEFAULT true,                        -- Виден ли профиль другим пользователям
+    
+    -- Контакты в формате JSON: [{"name": "Telegram", "url": "https://t.me/username", "icon": "telegram.svg", "is_public": true}]
+    -- name: Название контакта (Telegram, GitHub, etc.)
+    -- url: Ссылка на контакт
+    -- icon: Иконка для отображения
+    -- is_public: Виден ли контакт другим пользователям
+    contacts JSONB DEFAULT '[]',
+    
+    -- Информация о пользователе в формате JSON: [{"label": "Профессия", "value": "Программист", "is_public": true}]
+    -- label: Категория информации (Профессия, Образование, etc.)
+    -- value: Значение информации
+    -- is_public: Видна ли информация другим пользователям
+    information JSONB DEFAULT '[]',
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания аккаунта
+    updated_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время последнего обновления профиля
+    last_login_at TIMESTAMPTZ DEFAULT NOW()                        -- Дата и время последнего входа в систему
+);
+
+-- =============================================================================
+-- 2. Статистика пользователей (отдельная таблица)
+-- =============================================================================
+CREATE TABLE user_stats (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор записи статистики
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- Ссылка на пользователя
+    
+    subscribers_count INTEGER DEFAULT 0,                           -- Количество подписчиков пользователя
+    completed_courses INTEGER DEFAULT 0,                           -- Количество завершенных курсов
+    study_hours INTEGER DEFAULT 0,                                 -- Общее количество часов обучения
+    created_courses INTEGER DEFAULT 0,                             -- Количество созданных курсов
+    total_likes INTEGER DEFAULT 0,                                 -- Общее количество лайков на всех видео пользователя
+    total_views INTEGER DEFAULT 0,                                 -- Общее количество просмотров всех видео пользователя
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания записи статистики
+    updated_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время последнего обновления статистики
+    
+    UNIQUE(user_id)                                                -- Гарантия одной записи статистики на пользователя
+);
+
+-- =============================================================================
+-- 3. Таблицы курсов и контента
+-- =============================================================================
+CREATE TABLE courses (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор курса
+    author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, -- ID автора курса (создателя)
+    
+    title TEXT NOT NULL,                                           -- Название курса
+    description TEXT,                                              -- Описание курса
+    category TEXT NOT NULL,                                        -- Категория курса (Программирование, Дизайн, etc.)
+    level TEXT NOT NULL CHECK (level IN ('начинающий', 'средний', 'продвинутый')), -- Уровень сложности курса
+    language TEXT DEFAULT 'ru',                                    -- Язык курса
+    
+    cover_path TEXT,                                               -- Путь к обложке курса (главное изображение)
+    icon_path TEXT,                                                -- Путь к иконке курса (маленькое изображение для списков)
+    
+    chapters_count INTEGER DEFAULT 0,                              -- Количество глав в курсе
+    videos_count INTEGER DEFAULT 0,                                -- Количество видео в курсе (только одобренных)
+    total_views INTEGER DEFAULT 0,                                 -- Общее количество просмотров всех видео курса
+    total_likes INTEGER DEFAULT 0,                                 -- Общее количество лайков всех видео курса
+    
+    price DECIMAL(10,2) DEFAULT 0,                                 -- Цена курса (0 для бесплатных)
+    is_paid BOOLEAN DEFAULT false,                                 -- Является ли курс платным
+    is_published BOOLEAN DEFAULT false,                            -- Опубликован ли курс (виден ли студентам)
+    is_public BOOLEAN DEFAULT true,                                -- Является ли курс публичным (виден ли в поиске)
+    
+    -- Теги для поиска и фильтрации в формате JSON: ["python", "программирование", "начальный"]
+    tags JSONB DEFAULT '[]',
+    
+    rating DECIMAL(3,2) DEFAULT 0,                                 -- Рейтинг курса от 0.00 до 5.00
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания курса
+    updated_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время последнего обновления курса
+    last_accessed_at TIMESTAMPTZ DEFAULT NOW()                     -- Дата и время последнего доступа к курсу
+);
+
+CREATE TABLE course_chapters (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор главы
+    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE, -- ID курса, к которому принадлежит глава
+    
+    title TEXT NOT NULL,                                           -- Название главы
+    description TEXT,                                              -- Описание главы
+    "order" INTEGER NOT NULL,                                      -- Порядковый номер главы в курсе (для сортировки)
+    
+    videos_count INTEGER DEFAULT 0,                                -- Количество видео в главе (только одобренных)
+    total_duration INTEGER DEFAULT 0,                              -- Общая продолжительность всех видео в главе (в секундах)
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания главы
+    updated_at TIMESTAMPTZ DEFAULT NOW()                           -- Дата и время последнего обновления главы
+);
+
+CREATE TABLE course_videos (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор видео
+    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE, -- ID курса, к которому принадлежит видео
+    chapter_id TEXT REFERENCES course_chapters(id) ON DELETE CASCADE, -- ID главы, к которой принадлежит видео (может быть NULL)
+    author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, -- ID автора видео (владельца контента)
+    
+    title TEXT NOT NULL,                                           -- Название видео
+    description TEXT,                                              -- Описание видео
+    "order" INTEGER NOT NULL,                                      -- Порядковый номер видео в курсе/главе (для сортировки)
+    
+    video_filename TEXT NOT NULL,                                  -- Имя файла видео на сервере
+    video_path TEXT NOT NULL,                                      -- Путь к видеофайлу на сервере
+    duration TEXT,                                                 -- Длительность видео в формате "00:15:30"
+    duration_seconds INTEGER,                                      -- Длительность видео в секундах (для расчетов)
+    
+    cover_path TEXT,                                               -- Путь к обложке видео (превью)
+    
+    has_subtitles BOOLEAN DEFAULT false,                           -- Есть ли у видео субтитры
+    has_notes BOOLEAN DEFAULT false,                               -- Есть ли к видео дополнительные материалы/заметки
+    
+    views_count INTEGER DEFAULT 0,                                 -- Количество просмотров видео
+    likes_count INTEGER DEFAULT 0,                                 -- Количество лайков видео
+    
+    is_approved BOOLEAN DEFAULT false,                             -- Одобрено ли видео модератором
+    approved_by TEXT REFERENCES users(id),                         -- ID пользователя, который одобрил видео (модератор)
+    approved_at TIMESTAMPTZ,                                       -- Дата и время одобрения видео
+    
+    uploaded_by TEXT REFERENCES users(id),                         -- ID пользователя, который загрузил видео (для проверяющих)
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания видео
+    updated_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время последнего обновления видео
+    last_accessed_at TIMESTAMPTZ DEFAULT NOW()                     -- Дата и время последнего просмотра видео
+);
+
+-- =============================================================================
+-- 4. Таблицы прогресса обучения
+-- =============================================================================
+CREATE TABLE user_progress (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор записи прогресса
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- ID пользователя
+    course_id TEXT REFERENCES courses(id) ON DELETE CASCADE,       -- ID курса (может быть NULL если прогресс только по видео)
+    chapter_id TEXT REFERENCES course_chapters(id) ON DELETE CASCADE, -- ID главы (может быть NULL)
+    video_id TEXT REFERENCES course_videos(id) ON DELETE CASCADE,  -- ID видео
+    
+    completed BOOLEAN DEFAULT false,                               -- Завершено ли видео/глава/курс
+    watched_seconds INTEGER DEFAULT 0,                             -- Сколько секунд просмотрено
+    total_seconds INTEGER,                                         -- Общая длительность в секундах
+    progress_percentage INTEGER DEFAULT 0,                         -- Процент просмотра (0-100)
+    
+    last_watched_at TIMESTAMPTZ DEFAULT NOW(),                     -- Дата и время последнего просмотра
+    completed_at TIMESTAMPTZ,                                      -- Дата и время завершения (если completed = true)
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания записи
+    updated_at TIMESTAMPTZ DEFAULT NOW()                           -- Дата и время последнего обновления прогресса
+);
+
+CREATE TABLE course_enrollments (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор зачисления
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- ID пользователя
+    course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE, -- ID курса
+    
+    completion_percentage INTEGER DEFAULT 0,                       -- Общий процент завершения курса (0-100)
+    is_completed BOOLEAN DEFAULT false,                            -- Завершен ли курс полностью
+    
+    enrolled_at TIMESTAMPTZ DEFAULT NOW(),                         -- Дата и время зачисления на курс
+    completed_at TIMESTAMPTZ,                                      -- Дата и время завершения курса (если is_completed = true)
+    last_accessed_at TIMESTAMPTZ DEFAULT NOW(),                    -- Дата и время последнего доступа к курсу
+    
+    UNIQUE(user_id, course_id)                                     -- Один пользователь может быть зачислен на курс только один раз
+);
+
+-- =============================================================================
+-- 5. Таблицы модерации и администрирования
+-- =============================================================================
+CREATE TABLE moderation_requests (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор запроса модерации
+    content_type TEXT NOT NULL CHECK (content_type IN ('видео')),  -- Тип контента для модерации (только видео)
+    content_id TEXT NOT NULL,                                      -- ID контента (video_id)
+    submitted_by TEXT REFERENCES users(id),                        -- ID пользователя, отправившего на модерацию
+    
+    status TEXT NOT NULL CHECK (status IN ('на_модерации', 'одобрено', 'отклонено')) DEFAULT 'на_модерации', -- Статус модерации
+    reviewed_by TEXT REFERENCES users(id),                         -- ID проверяющего, который проверил контент
+    review_notes TEXT,                                             -- Комментарии проверяющего
+    
+    submitted_at TIMESTAMPTZ DEFAULT NOW(),                        -- Дата и время отправки на модерацию
+    reviewed_at TIMESTAMPTZ,                                       -- Дата и время проверки
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания записи
+    updated_at TIMESTAMPTZ DEFAULT NOW()                           -- Дата и время последнего обновления
+);
+
+CREATE TABLE server_logs (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор лога
+    user_id TEXT REFERENCES users(id),                             -- ID пользователя, совершившего действие (может быть NULL для системных событий)
+    action TEXT NOT NULL,                                          -- Действие (course_created, video_uploaded, etc.)
+    resource_type TEXT,                                            -- Тип ресурса (course, video, user, etc.)
+    resource_id TEXT,                                              -- ID ресурса
+    
+    -- Дополнительная информация в формате JSON
+    -- Например: {"title": "Название курса", "category": "Программирование"}
+    details JSONB,
+    
+    ip_address INET,                                               -- IP-адрес, с которого совершено действие
+    user_agent TEXT,                                               -- User-Agent браузера/приложения
+    
+    created_at TIMESTAMPTZ DEFAULT NOW()                           -- Дата и время создания лога
+);
+
+-- =============================================================================
+-- 6. Таблица шаблонов комментариев для модерации
+-- =============================================================================
+CREATE TABLE moderation_templates (
+    id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,           -- Уникальный идентификатор шаблона
+    category TEXT NOT NULL CHECK (category IN ('отклонение', 'одобрение', 'замечания')), -- Категория шаблона
+    title TEXT NOT NULL,                                           -- Название шаблона для быстрого выбора
+    template_text TEXT NOT NULL,                                   -- Текст шаблона
+    is_active BOOLEAN DEFAULT true,                                -- Активен ли шаблон
+    created_by TEXT REFERENCES users(id),                          -- Кто создал шаблон
+    created_at TIMESTAMPTZ DEFAULT NOW(),                          -- Дата и время создания шаблона
+    updated_at TIMESTAMPTZ DEFAULT NOW()                           -- Дата и время последнего обновления шаблона
+);
+
+-- Добавляем поле для связи с шаблоном в moderation_requests
+ALTER TABLE moderation_requests 
+ADD COLUMN used_template_id TEXT REFERENCES moderation_templates(id);
+
+-- =============================================================================
+-- 7. Индексы для производительности
+-- =============================================================================
+CREATE INDEX idx_users_role ON users(role);                        -- Быстрый поиск по ролям
+CREATE INDEX idx_courses_author_id ON courses(author_id);          -- Быстрый поиск курсов по автору
+CREATE INDEX idx_courses_tags ON courses USING GIN (tags);         -- Быстрый поиск по тегам курсов
+CREATE INDEX idx_course_videos_author_id ON course_videos(author_id); -- Быстрый поиск видео по автору
+CREATE INDEX idx_course_videos_approved ON course_videos(is_approved); -- Быстрый поиск одобренных/неодобренных видео
+CREATE INDEX idx_user_stats_user_id ON user_stats(user_id);        -- Быстрый поиск статистики по пользователю
+CREATE INDEX idx_moderation_requests_status ON moderation_requests(status); -- Быстрый поиск запросов по статусу
+CREATE INDEX idx_server_logs_created_at ON server_logs(created_at); -- Быстрый поиск логов по дате
+CREATE INDEX idx_course_videos_course_approved ON course_videos (course_id, is_approved); -- Быстрый поиск одобренных видео курса
+CREATE INDEX idx_course_videos_chapter_approved ON course_videos (chapter_id, is_approved); -- Быстрый поиск одобренных видео главы
+CREATE INDEX idx_user_progress_user_course ON user_progress (user_id, course_id); -- Быстрый поиск прогресса пользователя по курсу
+CREATE INDEX idx_course_enrollments_user_completed ON course_enrollments (user_id, is_completed); -- Быстрый поиск завершенных курсов
+CREATE INDEX idx_moderation_requests_content_type ON moderation_requests (content_type, content_id); -- Быстрый поиск запросов по контенту
+CREATE INDEX idx_moderation_templates_category ON moderation_templates (category, is_active); -- Быстрый поиск шаблонов по категории
+
+-- =============================================================================
+-- 8. Функции для автоматического обновления и проверок
+-- =============================================================================
+
+-- Функция для автоматического обновления поля updated_at
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для проверки роли автора курса
+CREATE OR REPLACE FUNCTION validate_course_author()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Проверяем, что автор курса имеет правильную роль (основатель или пользователь)
+    IF NOT EXISTS (
+        SELECT 1 FROM users 
+        WHERE id = NEW.author_id 
+        AND role IN ('основатель', 'пользователь')
+    ) THEN
+        RAISE EXCEPTION 'Только основатель и пользователи могут создавать курсы';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для проверки роли автора видео
+CREATE OR REPLACE FUNCTION validate_video_author()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Проверяем, что автор видео имеет правильную роль (основатель или пользователь)
+    IF NOT EXISTS (
+        SELECT 1 FROM users 
+        WHERE id = NEW.author_id 
+        AND role IN ('основатель', 'пользователь')
+    ) THEN
+        RAISE EXCEPTION 'Только основатель и пользователи могут быть авторами видео';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического создания записи статистики при создании пользователя
+CREATE OR REPLACE FUNCTION create_user_stats()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO user_stats (user_id) VALUES (NEW.id);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического обновления счетчиков видео в курсе при изменении видео
+CREATE OR REPLACE FUNCTION update_course_video_counts()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+        UPDATE courses 
+        SET videos_count = (
+            SELECT COUNT(*) FROM course_videos 
+            WHERE course_id = NEW.course_id AND is_approved = true
+        )
+        WHERE id = NEW.course_id;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE courses 
+        SET videos_count = (
+            SELECT COUNT(*) FROM course_videos 
+            WHERE course_id = OLD.course_id AND is_approved = true
+        )
+        WHERE id = OLD.course_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического обновления общей статистики лайков пользователя
+CREATE OR REPLACE FUNCTION update_user_likes_stats()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW.likes_count != OLD.likes_count THEN
+        UPDATE user_stats 
+        SET total_likes = (
+            SELECT SUM(likes_count) FROM course_videos 
+            WHERE author_id = (SELECT author_id FROM course_videos WHERE id = NEW.id)
+        )
+        WHERE user_id = (SELECT author_id FROM course_videos WHERE id = NEW.id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматической публикации курса при первом одобренном видео
+CREATE OR REPLACE FUNCTION auto_publish_course_on_approval()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.is_approved = true AND OLD.is_approved = false THEN
+        UPDATE courses 
+        SET is_published = true 
+        WHERE id = NEW.course_id 
+        AND is_published = false;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического создания запроса модерации при загрузке видео пользователем
+CREATE OR REPLACE FUNCTION create_moderation_request()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Если видео от обычного пользователя и не одобрено - создаем запрос модерации
+    IF NEW.is_approved = false AND 
+       EXISTS (
+           SELECT 1 FROM users 
+           WHERE id = NEW.author_id AND role = 'пользователь'
+       ) THEN
+        
+        INSERT INTO moderation_requests (
+            content_type, content_id, submitted_by, status
+        ) VALUES (
+            'видео', NEW.id, NEW.author_id, 'на_модерации'
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического одобрения видео основателя
+CREATE OR REPLACE FUNCTION auto_approve_founder_videos()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Если видео загружает основатель - автоматически одобряем
+    IF EXISTS (
+        SELECT 1 FROM users 
+        WHERE id = NEW.author_id AND role = 'основатель'
+    ) THEN
+        NEW.is_approved := true;
+        NEW.approved_by := NEW.author_id;
+        NEW.approved_at := NOW();
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического обновления счетчиков глав при изменении видео
+CREATE OR REPLACE FUNCTION update_chapter_video_counts()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+        -- Обновляем главу, к которой принадлежит видео
+        IF NEW.chapter_id IS NOT NULL THEN
+            UPDATE course_chapters 
+            SET 
+                videos_count = (
+                    SELECT COUNT(*) FROM course_videos 
+                    WHERE chapter_id = NEW.chapter_id AND is_approved = true
+                ),
+                total_duration = (
+                    SELECT COALESCE(SUM(duration_seconds), 0) FROM course_videos 
+                    WHERE chapter_id = NEW.chapter_id AND is_approved = true
+                )
+            WHERE id = NEW.chapter_id;
+        END IF;
+        
+        -- Если глава изменилась, обновляем и старую главу
+        IF TG_OP = 'UPDATE' AND OLD.chapter_id IS NOT NULL AND OLD.chapter_id != NEW.chapter_id THEN
+            UPDATE course_chapters 
+            SET 
+                videos_count = (
+                    SELECT COUNT(*) FROM course_videos 
+                    WHERE chapter_id = OLD.chapter_id AND is_approved = true
+                ),
+                total_duration = (
+                    SELECT COALESCE(SUM(duration_seconds), 0) FROM course_videos 
+                    WHERE chapter_id = OLD.chapter_id AND is_approved = true
+                )
+            WHERE id = OLD.chapter_id;
+        END IF;
+    ELSIF TG_OP = 'DELETE' THEN
+        -- Обновляем главу при удалении видео
+        IF OLD.chapter_id IS NOT NULL THEN
+            UPDATE course_chapters 
+            SET 
+                videos_count = (
+                    SELECT COUNT(*) FROM course_videos 
+                    WHERE chapter_id = OLD.chapter_id AND is_approved = true
+                ),
+                total_duration = (
+                    SELECT COALESCE(SUM(duration_seconds), 0) FROM course_videos 
+                    WHERE chapter_id = OLD.chapter_id AND is_approved = true
+                )
+            WHERE id = OLD.chapter_id;
+        END IF;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического обновления статистики при завершении курса
+CREATE OR REPLACE FUNCTION update_user_stats_on_course_completion()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.is_completed = true AND OLD.is_completed = false THEN
+        -- Увеличиваем счетчик завершенных курсов
+        UPDATE user_stats 
+        SET completed_courses = completed_courses + 1,
+            updated_at = NOW()
+        WHERE user_id = NEW.user_id;
+        
+        -- Добавляем учебные часы (примерно по 1 часу на курс, можно адаптировать)
+        UPDATE user_stats 
+        SET study_hours = study_hours + 1,
+            updated_at = NOW()
+        WHERE user_id = NEW.user_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для автоматического обновления created_courses в статистике
+CREATE OR REPLACE FUNCTION update_user_created_courses_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        UPDATE user_stats 
+        SET created_courses = created_courses + 1,
+            updated_at = NOW()
+        WHERE user_id = NEW.author_id;
+    ELSIF TG_OP = 'DELETE' THEN
+        UPDATE user_stats 
+        SET created_courses = created_courses - 1,
+            updated_at = NOW()
+        WHERE user_id = OLD.author_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для получения полной структуры курса
+CREATE OR REPLACE FUNCTION get_course_structure(course_id TEXT)
+RETURNS TABLE(
+    video_id TEXT,
+    video_title TEXT,
+    video_order INTEGER,
+    chapter_id TEXT,
+    chapter_title TEXT,
+    chapter_order INTEGER,
+    video_type TEXT,
+    is_approved BOOLEAN,
+    duration_seconds INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        cv.id as video_id,
+        cv.title as video_title,
+        cv."order" as video_order,
+        cc.id as chapter_id,
+        cc.title as chapter_title,
+        cc."order" as chapter_order,
+        CASE 
+            WHEN cv.chapter_id IS NULL THEN 'course_video'
+            ELSE 'chapter_video'
+        END as video_type,
+        cv.is_approved,
+        cv.duration_seconds
+    FROM course_videos cv
+    LEFT JOIN course_chapters cc ON cv.chapter_id = cc.id
+    WHERE cv.course_id = $1
+    ORDER BY 
+        CASE WHEN cc.id IS NOT NULL THEN cc."order" ELSE 999 END ASC,
+        CASE WHEN cv.chapter_id IS NOT NULL THEN cv."order" ELSE 999 END ASC,
+        CASE WHEN cv.chapter_id IS NULL THEN cv."order" ELSE 999 END ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Функция для подсчета общего прогресса пользователя в курсе
+CREATE OR REPLACE FUNCTION calculate_course_progress(user_id TEXT, course_id TEXT)
+RETURNS INTEGER AS $$
+DECLARE
+    total_videos INTEGER;
+    completed_videos INTEGER;
+    progress_percentage INTEGER;
+BEGIN
+    -- Получаем общее количество одобренных видео в курсе
+    SELECT COUNT(*) INTO total_videos
+    FROM course_videos 
+    WHERE course_id = $2 AND is_approved = true;
+    
+    -- Получаем количество завершенных видео пользователем
+    SELECT COUNT(*) INTO completed_videos
+    FROM user_progress up
+    JOIN course_videos cv ON up.video_id = cv.id
+    WHERE up.user_id = $1 AND up.course_id = $2 AND up.completed = true AND cv.is_approved = true;
+    
+    -- Вычисляем процент прогресса
+    IF total_videos > 0 THEN
+        progress_percentage := (completed_videos * 100) / total_videos;
+    ELSE
+        progress_percentage := 0;
+    END IF;
+    
+    -- Обновляем прогресс в course_enrollments
+    UPDATE course_enrollments 
+    SET completion_percentage = progress_percentage,
+        is_completed = (progress_percentage = 100),
+        completed_at = CASE WHEN progress_percentage = 100 AND is_completed = false THEN NOW() ELSE completed_at END
+    WHERE user_id = $1 AND course_id = $2;
+    
+    RETURN progress_percentage;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================================================
+-- 9. Триггеры для автоматического обновления
+-- =============================================================================
+
+-- Триггеры для обновления updated_at в основных таблицах
+CREATE TRIGGER trigger_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_user_stats_updated_at BEFORE UPDATE ON user_stats FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_courses_updated_at BEFORE UPDATE ON courses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_course_chapters_updated_at BEFORE UPDATE ON course_chapters FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_course_videos_updated_at BEFORE UPDATE ON course_videos FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_moderation_requests_updated_at BEFORE UPDATE ON moderation_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trigger_moderation_templates_updated_at BEFORE UPDATE ON moderation_templates FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Триггеры для проверки ролей (заменяют CHECK constraints с подзапросами)
+CREATE TRIGGER trigger_validate_course_author
+    BEFORE INSERT OR UPDATE ON courses
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_course_author();
+
+CREATE TRIGGER trigger_validate_video_author
+    BEFORE INSERT OR UPDATE ON course_videos
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_video_author();
+
+-- Основные триггеры системы
+CREATE TRIGGER trigger_create_user_stats
+    AFTER INSERT ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION create_user_stats();
+
+CREATE TRIGGER trigger_update_course_video_counts
+    AFTER INSERT OR UPDATE OR DELETE ON course_videos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_course_video_counts();
+
+CREATE TRIGGER trigger_update_user_likes_stats
+    AFTER UPDATE ON course_videos
+    FOR EACH ROW
+    WHEN (NEW.likes_count IS DISTINCT FROM OLD.likes_count)
+    EXECUTE FUNCTION update_user_likes_stats();
+
+CREATE TRIGGER trigger_auto_publish_course
+    AFTER UPDATE ON course_videos
+    FOR EACH ROW
+    WHEN (NEW.is_approved IS DISTINCT FROM OLD.is_approved)
+    EXECUTE FUNCTION auto_publish_course_on_approval();
+
+CREATE TRIGGER trigger_create_moderation_request
+    AFTER INSERT ON course_videos
+    FOR EACH ROW
+    EXECUTE FUNCTION create_moderation_request();
+
+CREATE TRIGGER trigger_auto_approve_founder_videos
+    BEFORE INSERT ON course_videos
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_approve_founder_videos();
+
+CREATE TRIGGER trigger_update_chapter_video_counts
+    AFTER INSERT OR UPDATE OR DELETE ON course_videos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_chapter_video_counts();
+
+CREATE TRIGGER trigger_update_user_stats_on_course_completion
+    AFTER UPDATE ON course_enrollments
+    FOR EACH ROW
+    WHEN (NEW.is_completed IS DISTINCT FROM OLD.is_completed)
+    EXECUTE FUNCTION update_user_stats_on_course_completion();
+
+CREATE TRIGGER trigger_update_user_created_courses_count
+    AFTER INSERT OR DELETE ON courses
+    FOR EACH ROW
+    EXECUTE FUNCTION update_user_created_courses_count();
+
+-- =============================================================================
+-- 10. Представления для удобных запросов (ИСПРАВЛЕННЫЕ)
+-- =============================================================================
+
+-- Представление для отображения курсов с информацией об авторе
+CREATE VIEW courses_with_authors AS
+SELECT 
+    c.*,
+    u.username as author_username,
+    u.avatar_path as author_avatar,
+    us.created_courses as author_courses_count
+FROM courses c
+JOIN users u ON c.author_id = u.id
+JOIN user_stats us ON u.id = us.user_id;
+
+-- Представление для модерации с полной информацией
+CREATE VIEW moderation_queue AS
+SELECT 
+    mr.*,
+    cv.title as video_title,
+    cv.description as video_description,
+    cv.duration,
+    cv.cover_path as video_cover,
+    u_video.username as video_author,
+    c.title as course_title,
+    u_course.username as course_author,
+    mr.submitted_at as submitted_date
+FROM moderation_requests mr
+JOIN course_videos cv ON mr.content_id = cv.id
+JOIN users u_video ON cv.author_id = u_video.id
+JOIN courses c ON cv.course_id = c.id
+JOIN users u_course ON c.author_id = u_course.id
+WHERE mr.status = 'на_модерации';
+
+-- ИСПРАВЛЕННОЕ представление для прогресса пользователей
+CREATE VIEW user_learning_progress AS
+SELECT 
+    ce.user_id,
+    u.username,
+    ce.course_id,
+    c.title as course_title,
+    ce.completion_percentage,
+    ce.is_completed,
+    ce.last_accessed_at,
+    COUNT(DISTINCT up.video_id) as videos_completed,
+    (SELECT COUNT(*) FROM course_videos WHERE course_id = ce.course_id AND is_approved = true) as total_videos
+FROM course_enrollments ce
+JOIN users u ON ce.user_id = u.id
+JOIN courses c ON ce.course_id = c.id
+LEFT JOIN user_progress up ON ce.user_id = up.user_id AND ce.course_id = up.course_id AND up.completed = true
+GROUP BY ce.user_id, u.username, ce.course_id, c.title, ce.completion_percentage, ce.is_completed, ce.last_accessed_at;
+
+-- =============================================================================
+-- 11. Создание пользователя-основателя
+-- =============================================================================
+INSERT INTO users (id, username, email, password_hash, role) VALUES (
+    'c0ffeeee-c0de-ed1f-c0de-badcafefaced',
+    'основатель',
+    'boogorkolenka@gmail.com',
+    '$2y$10$FLY88gC7S4meKPNiQUo0yuG1dec.Hk0f1IEUgJy1PWs7pQPLrYe6m',
+    'основатель'
+);

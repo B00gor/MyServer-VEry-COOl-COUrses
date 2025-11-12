@@ -1,0 +1,106 @@
+{
+    // rdbms: тип СУБД — postgresql, mysql или sqlite3
+    "rdbms": "postgresql",
+    // filename: имя файла базы данных sqlite3 (не используется для PostgreSQL)
+    //"filename":"",
+    // host: адрес сервера, по умолчанию localhost
+    "host": "127.0.0.1",
+    // port: порт сервера, по умолчанию 5432
+    "port": 5432,
+    // dbname: имя базы данных
+    "dbname": "myserver",
+    // schema: применимо только для PostgreSQL, по умолчанию "public"
+    "schema": "public",
+    // user: имя пользователя
+    "user": "boogor",
+    // password или passwd: пароль пользователя
+    "password": "1",
+    // client_encoding: кодировка, используемая drogon_ctl. По умолчанию пустая строка, что означает использование кодировки по умолчанию СУБД.
+    //"client_encoding": "",
+    // tables: массив имён таблиц, которые нужно смоделировать. Если массив пуст, будут смоделированы все обнаруженные таблицы.
+    "tables": [],
+    // convert: функции преобразования значений, вызываемые перед записью в БД или после чтения из БД
+    "convert": {
+      "enabled": false,
+      "items":[{
+          "table": "user",
+          "column": "password",
+          "method": {
+            // after_db_read: имя метода, вызываемого после чтения из базы данных. Сигнатура: void([const] std::shared_ptr [&])
+            "after_db_read": "decrypt_password",
+            // before_db_write: имя метода, вызываемого перед записью в базу данных. Сигнатура: void([const] std::shared_ptr [&])
+            "before_db_write": "encrypt_password"
+          },
+          // includes: список заголовочных файлов, которые необходимо подключить для работы методов преобразования
+          "includes": [
+            "\"file_local_search_path.h\"","<file_in_global_search_path.h>"
+          ]
+      }]
+    },
+    // relationships: описание отношений между таблицами (ассоциаций)
+    "relationships": {
+        "enabled": false,
+        "items": [{
+                // type: тип отношения — "has one", "has many" или "many to many"
+                "type": "has one",
+                "original_table_name": "products",
+                "original_table_alias": "product",
+                "original_key": "id",
+                "target_table_name": "skus",
+                "target_table_alias": "SKU",
+                "target_key": "product_id",
+                // enable_reverse: если true, то автоматически создаётся обратная ассоциация (например, SKU -> product)
+                "enable_reverse": true
+            },
+            {
+                "type": "has many",
+                "original_table_name": "products",
+                "original_table_alias": "product",
+                "original_key": "id",
+                "target_table_name": "reviews",
+                "target_table_alias": "",
+                "target_key": "product_id",
+                "enable_reverse": true
+            },
+            {
+                "type": "many to many",
+                "original_table_name": "products",
+                "original_table_alias": "",
+                "original_key": "id",
+                "pivot_table": {
+                    "table_name": "carts_products",
+                    "original_key": "product_id",
+                    "target_key": "cart_id"
+                },
+                "target_table_name": "carts",
+                "target_table_alias": "",
+                "target_key": "id",
+                "enable_reverse": true
+            }
+        ]
+    },
+    // restful_api_controllers: настройки генерации RESTful API контроллеров
+    "restful_api_controllers": {
+        "enabled": false,
+        // resource_uri: URI для доступа к ресурсу. По умолчанию '/*', где звёздочка заменяется на имя таблицы.
+        // Если установлено в пустую строку, URI формируется из пространств имён и имени класса.
+        "resource_uri": "/*",
+        // class_name: имя генерируемого класса контроллера, по умолчанию "Restful*Ctrl" (звездочка заменяется на имя таблицы).
+        // Может содержать пространства имён, например: "api::v1::Restful*Ctrl"
+        "class_name": "Restful*Ctrl",
+        // filters: массив имён фильтров, которые будут применяться к этим контроллерам
+        "filters": [],
+        // db_client: клиент базы данных, используемый контроллером. Должен соответствовать конфигурации приложения.
+        "db_client": {
+            // name: имя клиента, по умолчанию "default"
+            "name": "default",
+            // is_fast: если true, используется быстрый клиент (без проверок), иначе — стандартный
+            "is_fast": false
+        },
+        // directory: директория, в которую будут сохраняться исходные файлы контроллеров
+        "directory": "controllers",
+        // generate_base_only: по умолчанию false. Если true, генерируются только базовые классы, чтобы не перезаписывать пользовательские подклассы
+        "generate_base_only": false
+    }
+}
+//drogon_ctl create model ./models/

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<body>
+    <div id="container" style="width: 100vw; height: 100vh;"></div>
+    
+    <script src="qtloader.js"></script>
+    <script src="myServeR.js"></script>
+    
+    <script>
+        setTimeout(function() {
+            if (window.myServeR_entry && qtLoad) {
+                qtLoad({
+                    qt: {
+                        entryFunction: window.myServeR_entry,
+                        containerElements: [document.getElementById('container')],
+                        useSharedArrayBuffer: false
+                    }
+                });
+            }
+        }, 2000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>My Video Library</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #121212;
+            color: #e0e0e0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Sidebar */
+        #sidebar {
+            width: 280px;
+            background: #1e1e1e;
+            padding: 20px 15px;
+            overflow-y: auto;
+            border-right: 1px solid #333;
+            transition: width 0.3s ease;
+        }
+
+        #sidebar h2 {
+            color: #4fc3f7;
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #sidebar h2::before {
+            content: "🎥";
+            font-size: 1.3em;
+        }
+
+        #videoList {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        #sidebar a {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            text-decoration: none;
+            color: #e0e0e0;
+            background: #2a2a2a;
+            border-radius: 8px;
+            transition: all 0.2s ease;
+            font-size: 1rem;
+        }
+
+        #sidebar a:hover {
+            background: #333;
+            transform: translateX(4px);
+            color: #4fc3f7;
+        }
+
+        #sidebar a::before {
+            content: "▶";
+            font-size: 0.9em;
+            opacity: 0.7;
+        }
+
+        #sidebar a.active {
+            background: #252525;
+            border-left: 3px solid #4fc3f7;
+            color: #4fc3f7;
+        }
+
+        /* Player */
+        #player {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 30px;
+            background: #0f0f0f;
+            position: relative;
+        }
+
+        .video-title {
+            color: white;
+            margin-bottom: 20px;
+            font-size: 1.6rem;
+            font-weight: 500;
+            text-align: center;
+            max-width: 800px;
+            word-break: break-word;
+        }
+
+        #videoPlayer {
+            width: 100%;
+            max-width: 1000px;
+            max-height: 80vh;
+            background: black;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Scrollbar styling (optional) */
+        #sidebar::-webkit-scrollbar {
+            width: 8px;
+        }
+        #sidebar::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+        #sidebar::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+        #sidebar::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+            #sidebar {
+                width: 100%;
+                height: 200px;
+                border-right: none;
+                border-bottom: 1px solid #333;
+            }
+            #player {
+                padding: 15px;
+            }
+            .video-title {
+                font-size: 1.3rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="player">
+        <div class="video-title" id="currentTitle">Выберите видео для просмотра</div>
+        <video id="videoPlayer" controls>
+            Ваш браузер не поддерживает видео.
+        </video>
+    </div>
+    
+    <div id="sidebar">
+        <h2>My Videos</h2>
+        <div id="videoList">
+            <!-- Список видео будет подгружен сюда -->
+        </div>
+    </div>
+
+    <script>
+        const videoList = document.getElementById('videoList');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const currentTitle = document.getElementById('currentTitle');
+
+        // Удаляем активный класс у всех ссылок
+        function clearActive() {
+            document.querySelectorAll('#sidebar a').forEach(link => {
+                link.classList.remove('active');
+            });
+        }
+
+        // Загружаем список видео
+        fetch('/video')
+            .then(res => {
+                if (!res.ok) throw new Error('Не удалось загрузить список видео');
+                return res.json();
+            })
+            .then(data => {
+                if (!data.videos || data.videos.length === 0) {
+                    videoList.innerHTML = '<p style="color: #ff6b6b; text-align: center;">Видео не найдены</p>';
+                    return;
+                }
+
+                data.videos.forEach(video => {
+                    const link = document.createElement('a');
+                    link.href = '#';
+                    link.textContent = video.id;
+                    link.dataset.src = `/video/${encodeURIComponent(video.id)}`;
+                    link.dataset.title = video.id;
+
+                    link.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        clearActive();
+                        link.classList.add('active');
+
+                        const src = link.dataset.src;
+                        const title = link.dataset.title;
+
+                        videoPlayer.src = src;
+                        videoPlayer.load();
+                        currentTitle.textContent = title;
+                    });
+
+                    videoList.appendChild(link);
+                });
+            })
+            .catch(err => {
+                console.error('Ошибка:', err);
+                videoList.innerHTML = '<p style="color: #ff6b6b; text-align: center;">❌ Ошибка загрузки</p>';
+            });
+    </script>
+</body>
+</html>
